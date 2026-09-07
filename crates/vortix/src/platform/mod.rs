@@ -136,14 +136,20 @@ pub fn current_platform() -> &'static Platform {
 /// Directory a confined `wg-quick` is permitted to read configs from, when
 /// the platform confines it at all.
 ///
-/// Debian and Ubuntu ship an `AppArmor` profile for wg-quick that grants no read
+/// Debian and Ubuntu ship an `AppArmor` profile for wg-quick granting no read
 /// access outside `/etc/wireguard`, so a lifecycle copy staged anywhere else
-/// is refused by the kernel before wg-quick runs. `None` means the platform
-/// does not confine it and the caller may stage wherever it likes.
+/// is refused by the kernel before wg-quick even runs. The profile's rule is
+/// `file rw @{etc_rw}/wireguard/{,**}` — the `{,**}` covers the tree
+/// recursively, so Vortix takes its own subdirectory rather than writing
+/// beside configs the user manages. Nothing there is ever theirs, so there is
+/// no file to avoid clobbering and none of its contents outlive a teardown.
+///
+/// `None` means the platform does not confine wg-quick and the caller may
+/// stage wherever it likes.
 pub(crate) fn wireguard_staging_dir() -> Option<&'static std::path::Path> {
     #[cfg(target_os = "linux")]
     {
-        Some(std::path::Path::new("/etc/wireguard"))
+        Some(std::path::Path::new("/etc/wireguard/vortix"))
     }
     #[cfg(not(target_os = "linux"))]
     {
