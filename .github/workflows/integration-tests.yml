@@ -85,7 +85,7 @@ jobs:
       # release build starts from zero unless we hand it one through the
       # mounted workspace.
       - name: Cargo cache (${{ matrix.distro.label }})
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .ci-cargo-home
