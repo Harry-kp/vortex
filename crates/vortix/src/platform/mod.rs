@@ -133,6 +133,24 @@ pub fn current_platform() -> &'static Platform {
     GLOBAL_PLATFORM.get_or_init(Platform::for_test)
 }
 
+/// Directory a confined `wg-quick` is permitted to read configs from, when
+/// the platform confines it at all.
+///
+/// Debian and Ubuntu ship an `AppArmor` profile for wg-quick that grants no read
+/// access outside `/etc/wireguard`, so a lifecycle copy staged anywhere else
+/// is refused by the kernel before wg-quick runs. `None` means the platform
+/// does not confine it and the caller may stage wherever it likes.
+pub(crate) fn wireguard_staging_dir() -> Option<&'static std::path::Path> {
+    #[cfg(target_os = "linux")]
+    {
+        Some(std::path::Path::new("/etc/wireguard"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 pub(crate) fn observe_process_identity(
     pid: u32,
 ) -> std::io::Result<Option<crate::vortix_core::ports::process::KernelProcessIdentity>> {

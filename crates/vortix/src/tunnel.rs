@@ -80,7 +80,31 @@ impl TunnelKind {
     }
     pub fn up(&mut self, profile: &Profile) -> Result<TunnelHandle, TunnelError> {
         match self {
-            Self::WireGuard(t) => t.up(profile),
+            Self::WireGuard(t) => {
+                let handle = t.up(profile)?;
+                // NetworkManager assumes any link it did not create as an
+                // external connection and marks it activated. When Vortix
+                // later removes the interface, NM reports that to the desktop
+                // as "Connection failed — Activation of network connection
+                // failed", immediately after a disconnect that succeeded.
+                //
+                // The helper-created path already detaches for this exact
+                // reason (helper/executor.rs); the wg-quick path never did.
+                // Best-effort: a host without NetworkManager is the normal
+                // case, and a working tunnel must not fail over a desktop
+                // notification.
+                if let Err(error) = crate::platform::detach_helper_interface_from_desktop_manager(
+                    &handle.interface_name,
+                ) {
+                    tracing::warn!(
+                        ?error,
+                        interface = %handle.interface_name,
+                        "NetworkManager retained a wg-quick interface; a spurious \
+                         connection-failed notification may appear on disconnect"
+                    );
+                }
+                Ok(handle)
+            }
             Self::OpenVpn(t) => t.up(profile),
             Self::Mock(t) => t.up(profile),
         }

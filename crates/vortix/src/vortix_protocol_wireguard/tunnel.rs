@@ -19,14 +19,8 @@ use tracing::{info, warn};
 
 use crate::vortix_protocol_wireguard::parser::parse_wg_conf;
 
-/// The only directory a confined `wg-quick` may read a config from on
-/// Debian-family distributions, and the canonical location everywhere else.
-#[cfg(target_os = "linux")]
-const WIREGUARD_CONFIG_DIR: &str = "/etc/wireguard";
-
 /// Marks a staged config as Vortix's own, so a user's file is never
 /// overwritten and a leftover copy is still recognisable.
-#[cfg(target_os = "linux")]
 const VORTIX_CONFIG_MARKER: &str = "# managed by vortix - do not edit";
 
 /// `wg-quick`-based `WireGuard` tunnel.
@@ -352,15 +346,10 @@ fn write_managed_temp_config(
     // in Vortix's own logs to explain it. The canonical directory is the only
     // location a confined wg-quick can read, so on Linux that is where the
     // lifecycle copy goes.
-    #[cfg(target_os = "linux")]
-    {
-        return write_managed_config_in_wireguard_dir(user_conf_path, stripped_body);
+    if let Some(directory) = crate::platform::wireguard_staging_dir() {
+        return write_managed_config_in_wireguard_dir(directory, user_conf_path, stripped_body);
     }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        write_managed_temp_config_unconfined(user_conf_path, stripped_body)
-    }
+    write_managed_temp_config_unconfined(user_conf_path, stripped_body)
 }
 
 /// Stage the lifecycle copy in `/etc/wireguard`, the only directory a confined
@@ -370,8 +359,8 @@ fn write_managed_temp_config(
 /// `/etc/wireguard/<name>.conf` is theirs, and silently overwriting it would
 /// destroy a working configuration. Vortix-owned copies carry a marker comment
 /// so a leftover from a previous run is still reclaimable.
-#[cfg(target_os = "linux")]
 fn write_managed_config_in_wireguard_dir(
+    directory: &Path,
     user_conf_path: &Path,
     stripped_body: &[u8],
 ) -> Result<PathBuf, TunnelError> {
@@ -382,7 +371,6 @@ fn write_managed_config_in_wireguard_dir(
         .file_name()
         .ok_or_else(|| TunnelError::Subprocess("WireGuard config has no basename".into()))?;
 
-    let directory = Path::new(WIREGUARD_CONFIG_DIR);
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt as _;
@@ -392,7 +380,8 @@ fn write_managed_config_in_wireguard_dir(
             .create(directory)
             .map_err(|error| {
                 TunnelError::Subprocess(format!(
-                    "create {WIREGUARD_CONFIG_DIR}: {error}. WireGuard needs this directory because wg-quick is confined to it."
+                    "create {}: {error}. WireGuard needs this directory because wg-quick is confined to it.",
+                    directory.display()
                 ))
             })?;
     }
@@ -422,7 +411,6 @@ fn write_managed_config_in_wireguard_dir(
 }
 
 /// Whether a staged config is a Vortix lifecycle copy rather than a user file.
-#[cfg(target_os = "linux")]
 fn is_vortix_owned_config(path: &Path) -> bool {
     std::fs::read(path)
         .ok()
@@ -431,7 +419,6 @@ fn is_vortix_owned_config(path: &Path) -> bool {
 }
 
 /// Original staging behaviour, retained where `wg-quick` is unconfined.
-#[allow(dead_code)]
 fn write_managed_temp_config_unconfined(
     user_conf_path: &Path,
     stripped_body: &[u8],
@@ -489,11 +476,10 @@ fn create_lifecycle_dir(session_root: &Path) -> Result<PathBuf, TunnelError> {
 fn cleanup_managed_temp_config(temp_path: &Path) {
     let _ = std::fs::remove_file(temp_path);
     if let Some(parent) = temp_path.parent() {
-        // On Linux the staged copy lives in /etc/wireguard, which Vortix does
-        // not own and must never remove — it may hold the user's own configs,
-        // and it is where a confined wg-quick looks.
-        #[cfg(target_os = "linux")]
-        if parent == Path::new(WIREGUARD_CONFIG_DIR) {
+        // The staging directory belongs to the user, not to Vortix: it may
+        // hold their own configs and it is where a confined wg-quick looks.
+        // Never remove it, only the leaf inside it.
+        if crate::platform::wireguard_staging_dir() == Some(parent) {
             return;
         }
 
