@@ -72,7 +72,7 @@ jobs:
       # The harness image installs a full apt/dnf set plus a rustup toolchain.
       # Without a layer cache every run pays for that download again.
       - name: Build integration harness image (${{ matrix.distro.label }})
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: tests/integration
           file: tests/integration/${{ matrix.distro.dockerfile }}
